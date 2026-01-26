@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Database, AlertCircle, AlertTriangle, Info, ChevronDown, ChevronRight, XCircle } from 'lucide-react';
 import { diagnoseData, DiagnosticResult, DiagnosticIssue } from '../api/client';
+import DataSourceBadge from '../components/DataSourceBadge';
 
 // 严重程度配置
 const severityConfig = {
@@ -120,6 +121,7 @@ function IssueCard({ issue }: { issue: DiagnosticIssue }) {
 
 export default function DataDiagnosticPage() {
   const [data, setData] = useState<DiagnosticResult | null>(null);
+  const [isMock, setIsMock] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'critical' | 'warning' | 'info'>('all');
@@ -129,7 +131,8 @@ export default function DataDiagnosticPage() {
     setError(null);
     try {
       const result = await diagnoseData();
-      setData(result);
+      setData(result.data);
+      setIsMock(result.isMock);
     } catch (err) {
       setError(err instanceof Error ? err.message : '数据诊断失败');
     } finally {
@@ -159,14 +162,17 @@ export default function DataDiagnosticPage() {
           </div>
         </div>
 
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          重新诊断
-        </button>
+        <div className="flex items-center gap-3">
+          {data && <DataSourceBadge isMock={isMock} />}
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            重新诊断
+          </button>
+        </div>
       </div>
 
       {/* Loading State */}

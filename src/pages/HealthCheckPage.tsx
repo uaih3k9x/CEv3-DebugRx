@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Activity, CheckCircle, AlertTriangle, XCircle, Clock } from 'lucide-react';
 import { healthCheck, HealthStatus, ServiceHealth } from '../api/client';
+import DataSourceBadge from '../components/DataSourceBadge';
 
 // 状态指示灯组件
 function StatusIndicator({ status }: { status: ServiceHealth['status'] }) {
@@ -114,6 +115,7 @@ function ServiceCard({ service }: { service: ServiceHealth }) {
 
 export default function HealthCheckPage() {
   const [data, setData] = useState<HealthStatus | null>(null);
+  const [isMock, setIsMock] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -122,7 +124,8 @@ export default function HealthCheckPage() {
     setError(null);
     try {
       const result = await healthCheck();
-      setData(result);
+      setData(result.data);
+      setIsMock(result.isMock);
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取健康状态失败');
     } finally {
@@ -148,14 +151,17 @@ export default function HealthCheckPage() {
           </div>
         </div>
 
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </button>
+        <div className="flex items-center gap-3">
+          {data && <DataSourceBadge isMock={isMock} />}
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            刷新
+          </button>
+        </div>
       </div>
 
       {/* Loading State */}

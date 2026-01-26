@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { RefreshCw, Server, Play, Square, AlertCircle, Cpu, HardDrive, Activity, Clock, ChevronDown, ChevronRight, XCircle } from 'lucide-react';
 import { getServiceStatus, ServiceStatus, ErrorLog } from '../api/client';
+import DataSourceBadge from '../components/DataSourceBadge';
 
 // 格式化运行时间
 function formatUptime(seconds: number): string {
@@ -211,6 +212,7 @@ function ServiceCard({ service }: { service: ServiceStatus }) {
 
 export default function ServiceMonitorPage() {
   const [data, setData] = useState<ServiceStatus[]>([]);
+  const [isMock, setIsMock] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -219,7 +221,8 @@ export default function ServiceMonitorPage() {
     setError(null);
     try {
       const result = await getServiceStatus();
-      setData(result);
+      setData(result.data);
+      setIsMock(result.isMock);
     } catch (err) {
       setError(err instanceof Error ? err.message : '获取服务状态失败');
     } finally {
@@ -253,14 +256,17 @@ export default function ServiceMonitorPage() {
           </div>
         </div>
 
-        <button
-          onClick={fetchData}
-          disabled={loading}
-          className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          刷新
-        </button>
+        <div className="flex items-center gap-3">
+          {data.length > 0 && <DataSourceBadge isMock={isMock} />}
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            刷新
+          </button>
+        </div>
       </div>
 
       {/* Loading State */}

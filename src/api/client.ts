@@ -600,48 +600,54 @@ function generateMockConfigCheckResult(): ConfigCheckResult {
   return { valid, items, checkedAt: new Date().toISOString() };
 }
 
+// ========== 带 Mock 标识的响应包装 ==========
+
+export interface WithMockFlag<T> {
+  data: T;
+  isMock: boolean;
+}
+
 // 健康检查
-export async function healthCheck(): Promise<HealthStatus> {
+export async function healthCheck(): Promise<WithMockFlag<HealthStatus>> {
   try {
     const res = await api.get<ApiResponse<HealthStatus>>('/health');
-    return res.data.data;
+    return { data: res.data.data, isMock: false };
   } catch {
-    // API 未实现时返回 mock 数据
     console.warn('[API] healthCheck: using mock data');
-    return generateMockHealthStatus();
+    return { data: generateMockHealthStatus(), isMock: true };
   }
 }
 
 // 数据诊断
-export async function diagnoseData(): Promise<DiagnosticResult> {
+export async function diagnoseData(): Promise<WithMockFlag<DiagnosticResult>> {
   try {
     const res = await api.get<ApiResponse<DiagnosticResult>>('/diagnostic/data');
-    return res.data.data;
+    return { data: res.data.data, isMock: false };
   } catch {
     console.warn('[API] diagnoseData: using mock data');
-    return generateMockDiagnosticResult();
+    return { data: generateMockDiagnosticResult(), isMock: true };
   }
 }
 
 // 服务状态
-export async function getServiceStatus(): Promise<ServiceStatus[]> {
+export async function getServiceStatus(): Promise<WithMockFlag<ServiceStatus[]>> {
   try {
     const res = await api.get<ApiResponse<{ items: ServiceStatus[] }>>('/diagnostic/services');
-    return res.data.data.items || [];
+    return { data: res.data.data.items || [], isMock: false };
   } catch {
     console.warn('[API] getServiceStatus: using mock data');
-    return generateMockServiceStatus();
+    return { data: generateMockServiceStatus(), isMock: true };
   }
 }
 
 // 配置检查
-export async function checkConfig(): Promise<ConfigCheckResult> {
+export async function checkConfig(): Promise<WithMockFlag<ConfigCheckResult>> {
   try {
     const res = await api.get<ApiResponse<ConfigCheckResult>>('/diagnostic/config');
-    return res.data.data;
+    return { data: res.data.data, isMock: false };
   } catch {
     console.warn('[API] checkConfig: using mock data');
-    return generateMockConfigCheckResult();
+    return { data: generateMockConfigCheckResult(), isMock: true };
   }
 }
 
