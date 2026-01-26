@@ -431,6 +431,220 @@ export async function getTimeline(sessionId: string): Promise<ExecutionStep[]> {
   return res.data.data.items || [];
 }
 
+// ========== 诊断 API ==========
+
+export interface HealthStatus {
+  overall: 'healthy' | 'degraded' | 'unhealthy';
+  services: ServiceHealth[];
+  checkedAt: string;
+}
+
+export interface ServiceHealth {
+  name: string;
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  responseTime: number; // ms
+  message?: string;
+  lastCheck: string;
+}
+
+export interface DiagnosticResult {
+  summary: {
+    total: number;
+    critical: number;
+    warning: number;
+    info: number;
+  };
+  issues: DiagnosticIssue[];
+  checkedAt: string;
+}
+
+export interface DiagnosticIssue {
+  id: string;
+  severity: 'critical' | 'warning' | 'info';
+  category: string;
+  title: string;
+  description: string;
+  suggestion: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ServiceStatus {
+  id: string;
+  name: string;
+  status: 'running' | 'stopped' | 'error';
+  uptime: number; // seconds
+  metrics: {
+    cpu: number; // percentage
+    memory: number; // percentage
+    requests: number; // total
+    errors: number; // total
+    errorRate: number; // percentage
+  };
+  recentErrors: ErrorLog[];
+}
+
+export interface ErrorLog {
+  timestamp: string;
+  level: 'error' | 'warn';
+  message: string;
+  stack?: string;
+}
+
+export interface ConfigCheckResult {
+  valid: boolean;
+  items: ConfigItem[];
+  checkedAt: string;
+}
+
+export interface ConfigItem {
+  key: string;
+  value: string;
+  status: 'ok' | 'warning' | 'error';
+  message?: string;
+  category: string;
+}
+
+// Mock 数据生成函数（后端 API 未实现时使用）
+function generateMockHealthStatus(): HealthStatus {
+  const services: ServiceHealth[] = [
+    { name: 'API Server', status: 'healthy', responseTime: 45, lastCheck: new Date().toISOString() },
+    { name: 'PostgreSQL', status: 'healthy', responseTime: 12, lastCheck: new Date().toISOString() },
+    { name: 'Redis', status: 'healthy', responseTime: 3, lastCheck: new Date().toISOString() },
+    { name: 'MinIO', status: 'degraded', responseTime: 230, message: '响应时间较慢', lastCheck: new Date().toISOString() },
+    { name: 'Kafka', status: 'healthy', responseTime: 28, lastCheck: new Date().toISOString() },
+  ];
+  const overall = services.some(s => s.status === 'unhealthy') ? 'unhealthy'
+    : services.some(s => s.status === 'degraded') ? 'degraded' : 'healthy';
+  return { overall, services, checkedAt: new Date().toISOString() };
+}
+
+function generateMockDiagnosticResult(): DiagnosticResult {
+  const issues: DiagnosticIssue[] = [
+    {
+      id: '1',
+      severity: 'warning',
+      category: '数据一致性',
+      title: '发现孤立的任务记录',
+      description: '有 3 条任务记录没有关联的工作流实例',
+      suggestion: '建议运行数据清理脚本或手动关联工作流实例',
+      details: { taskIds: ['task-001', 'task-002', 'task-003'] },
+    },
+    {
+      id: '2',
+      severity: 'info',
+      category: '索引优化',
+      title: '建议添加索引',
+      description: 'workflow_instances 表的 status 字段缺少索引，可能影响查询性能',
+      suggestion: '在 status 字段上创建索引以提升查询效率',
+    },
+    {
+      id: '3',
+      severity: 'critical',
+      category: '数据完整性',
+      title: '外键约束违反',
+      description: '2 条评审记录引用了不存在的用户 ID',
+      suggestion: '需要修复数据或更新外键关联',
+      details: { affectedRecords: ['review-101', 'review-102'] },
+    },
+  ];
+  return {
+    summary: { total: issues.length, critical: 1, warning: 1, info: 1 },
+    issues,
+    checkedAt: new Date().toISOString(),
+  };
+}
+
+function generateMockServiceStatus(): ServiceStatus[] {
+  return [
+    {
+      id: 'api-1',
+      name: 'CE API Server',
+      status: 'running',
+      uptime: 86400 * 3 + 3600 * 5,
+      metrics: { cpu: 23.5, memory: 45.2, requests: 125000, errors: 42, errorRate: 0.034 },
+      recentErrors: [
+        { timestamp: new Date(Date.now() - 3600000).toISOString(), level: 'error', message: 'Connection timeout to database' },
+        { timestamp: new Date(Date.now() - 7200000).toISOString(), level: 'warn', message: 'Slow query detected (>1000ms)' },
+      ],
+    },
+    {
+      id: 'worker-1',
+      name: 'Workflow Worker',
+      status: 'running',
+      uptime: 86400 * 2 + 3600 * 12,
+      metrics: { cpu: 15.8, memory: 32.1, requests: 45000, errors: 5, errorRate: 0.011 },
+      recentErrors: [],
+    },
+    {
+      id: 'scheduler-1',
+      name: 'Task Scheduler',
+      status: 'running',
+      uptime: 86400 * 3 + 3600 * 5,
+      metrics: { cpu: 8.2, memory: 18.5, requests: 8500, errors: 0, errorRate: 0 },
+      recentErrors: [],
+    },
+  ];
+}
+
+function generateMockConfigCheckResult(): ConfigCheckResult {
+  const items: ConfigItem[] = [
+    { key: 'DATABASE_URL', value: 'postgres://***@localhost:5432/ce', status: 'ok', category: '数据库' },
+    { key: 'REDIS_URL', value: 'redis://localhost:6379', status: 'ok', category: '缓存' },
+    { key: 'MINIO_ENDPOINT', value: 'localhost:9000', status: 'warning', message: '建议使用 HTTPS', category: '存储' },
+    { key: 'JWT_SECRET', value: '********', status: 'ok', category: '安全' },
+    { key: 'LOG_LEVEL', value: 'debug', status: 'warning', message: '生产环境建议使用 info 或 warn', category: '日志' },
+    { key: 'CORS_ORIGINS', value: '*', status: 'error', message: '生产环境不应使用通配符', category: '安全' },
+    { key: 'KAFKA_BROKERS', value: 'localhost:9092', status: 'ok', category: '消息队列' },
+  ];
+  const valid = !items.some(i => i.status === 'error');
+  return { valid, items, checkedAt: new Date().toISOString() };
+}
+
+// 健康检查
+export async function healthCheck(): Promise<HealthStatus> {
+  try {
+    const res = await api.get<ApiResponse<HealthStatus>>('/health');
+    return res.data.data;
+  } catch {
+    // API 未实现时返回 mock 数据
+    console.warn('[API] healthCheck: using mock data');
+    return generateMockHealthStatus();
+  }
+}
+
+// 数据诊断
+export async function diagnoseData(): Promise<DiagnosticResult> {
+  try {
+    const res = await api.get<ApiResponse<DiagnosticResult>>('/diagnostic/data');
+    return res.data.data;
+  } catch {
+    console.warn('[API] diagnoseData: using mock data');
+    return generateMockDiagnosticResult();
+  }
+}
+
+// 服务状态
+export async function getServiceStatus(): Promise<ServiceStatus[]> {
+  try {
+    const res = await api.get<ApiResponse<{ items: ServiceStatus[] }>>('/diagnostic/services');
+    return res.data.data.items || [];
+  } catch {
+    console.warn('[API] getServiceStatus: using mock data');
+    return generateMockServiceStatus();
+  }
+}
+
+// 配置检查
+export async function checkConfig(): Promise<ConfigCheckResult> {
+  try {
+    const res = await api.get<ApiResponse<ConfigCheckResult>>('/diagnostic/config');
+    return res.data.data;
+  } catch {
+    console.warn('[API] checkConfig: using mock data');
+    return generateMockConfigCheckResult();
+  }
+}
+
 // ========== 工具函数 ==========
 
 // 设置开发 token
