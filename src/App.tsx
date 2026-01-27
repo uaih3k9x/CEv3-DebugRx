@@ -6,6 +6,8 @@ import HealthCheckPage from './pages/HealthCheckPage';
 import DataDiagnosticPage from './pages/DataDiagnosticPage';
 import ServiceMonitorPage from './pages/ServiceMonitorPage';
 import ConfigCheckPage from './pages/ConfigCheckPage';
+import TagManagementPage from './pages/TagManagementPage';
+import UsersPage from './pages/UsersPage';
 
 function App() {
   return (
@@ -18,6 +20,8 @@ function App() {
           <Route path="/diagnostic" element={<DataDiagnosticPage />} />
           <Route path="/monitor" element={<ServiceMonitorPage />} />
           <Route path="/config" element={<ConfigCheckPage />} />
+          <Route path="/tags" element={<TagManagementPage />} />
+          <Route path="/users" element={<UsersPage />} />
         </Routes>
       </Layout>
     </BrowserRouter>

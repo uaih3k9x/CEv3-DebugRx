@@ -1,5 +1,14 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 import type { DecisionTree, CaseWithDebugInfo } from '../types/workflow';
+import type {
+  TagDefinition,
+  CreateTagDefRequest,
+  UpdateTagDefRequest,
+  AssignTagRequest,
+  UserWithTags,
+  TagCondition,
+  QueryByTagsResponse,
+} from '../types/tag';
 
 // API 响应格式
 interface ApiResponse<T = unknown> {
@@ -720,6 +729,96 @@ export function clearAuth(): void {
   localStorage.removeItem('access_token');
   localStorage.removeItem('as_user');
   document.cookie = 'access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT';
+}
+
+// ========== 标签管理 API (Admin) ==========
+
+// 获取所有标签定义
+export async function listTagDefinitions(): Promise<TagDefinition[]> {
+  const res = await api.get<ApiResponse<TagDefinition[]>>('/admin/tags');
+  return res.data.data || [];
+}
+
+// 创建标签定义
+export async function createTagDefinition(data: CreateTagDefRequest): Promise<TagDefinition> {
+  const res = await api.post<ApiResponse<TagDefinition>>('/admin/tags', data);
+  return res.data.data;
+}
+
+// 更新标签定义
+export async function updateTagDefinition(
+  id: number,
+  data: UpdateTagDefRequest
+): Promise<TagDefinition> {
+  const res = await api.put<ApiResponse<TagDefinition>>(`/admin/tags/${id}`, data);
+  return res.data.data;
+}
+
+// 删除标签定义
+export async function deleteTagDefinition(id: number): Promise<void> {
+  await api.delete(`/admin/tags/${id}`);
+}
+
+// ========== 用户标签 API ==========
+
+// 获取用户标签
+export async function getUserTags(
+  userId: number,
+  academicYear?: string
+): Promise<Record<string, string>> {
+  const params = academicYear ? { academic_year: academicYear } : {};
+  const res = await api.get<ApiResponse<Record<string, string>>>(
+    `/users/${userId}/tags`,
+    { params }
+  );
+  return res.data.data || {};
+}
+
+// 分配标签给用户
+export async function assignUserTag(userId: number, data: AssignTagRequest): Promise<void> {
+  await api.post(`/users/${userId}/tags`, data);
+}
+
+// 移除用户标签
+export async function removeUserTag(
+  userId: number,
+  tagName: string,
+  academicYear?: string
+): Promise<void> {
+  const params = academicYear ? { academic_year: academicYear } : {};
+  await api.delete(`/users/${userId}/tags/${tagName}`, { params });
+}
+
+// 根据标签条件查询用户
+export async function queryUsersByTags(
+  condition: TagCondition,
+  page = 1,
+  limit = 20
+): Promise<QueryByTagsResponse> {
+  const res = await api.post<ApiResponse<QueryByTagsResponse>>('/users/by-tags', {
+    condition,
+    page,
+    limit,
+  });
+  return res.data.data;
+}
+
+// 批量获取用户及其标签
+export async function getUsersWithTags(userIds: number[]): Promise<UserWithTags[]> {
+  const results: UserWithTags[] = [];
+  for (const userId of userIds) {
+    try {
+      const tags = await getUserTags(userId);
+      // 简化实现：只返回标签，用户信息需要单独获取
+      results.push({
+        user: { id: userId } as UserWithTags['user'],
+        tags,
+      });
+    } catch {
+      // 忽略单个用户的错误
+    }
+  }
+  return results;
 }
 
 export default api;
