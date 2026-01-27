@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import * as api from '../api/client';
-import type { DebugSession, ExecutionStep } from '../types/workflow';
+import type { DebugSession, ExecutionStep, DecisionTree, CaseWithDebugInfo } from '../types/workflow';
 
 // 调试事件类型
 export type DebugEventType =
@@ -38,6 +38,10 @@ interface DebugState {
   loading: boolean;
   error: string | null;
 
+  // 案件调试模式
+  caseDebugInfo: CaseWithDebugInfo | null;
+  decisionTree: DecisionTree | null;
+
   // 操作
   createSession: (instanceId: string, mode?: 'step' | 'breakpoint' | 'continuous') => Promise<DebugSession>;
   loadSession: (sessionId: string) => Promise<void>;
@@ -73,6 +77,11 @@ interface DebugState {
   // 高亮
   setHighlightedNode: (nodeId: string | null) => void;
 
+  // 案件调试
+  loadCaseDebugInfo: (caseId: string) => Promise<CaseWithDebugInfo | null>;
+  setDecisionTree: (tree: DecisionTree | null) => void;
+  clearCaseDebug: () => void;
+
   // 重置
   reset: () => void;
 }
@@ -84,6 +93,8 @@ export const useDebugStore = create<DebugState>((set, get) => ({
   highlightedNodeId: null,
   loading: false,
   error: null,
+  caseDebugInfo: null,
+  decisionTree: null,
 
   createSession: async (instanceId, mode = 'step') => {
     set({ loading: true, error: null });
@@ -355,6 +366,32 @@ export const useDebugStore = create<DebugState>((set, get) => ({
 
   setHighlightedNode: (nodeId) => set({ highlightedNodeId: nodeId }),
 
+  // 案件调试方法
+  loadCaseDebugInfo: async (caseId: string) => {
+    set({ loading: true, error: null });
+    try {
+      const info = await api.getCaseWithDebug(caseId);
+      set({
+        caseDebugInfo: info,
+        decisionTree: info.decisionTree || null,
+        loading: false,
+      });
+      // 如果有当前节点，设置高亮
+      if (info.decisionTree?.currentNodeId) {
+        set({ highlightedNodeId: info.decisionTree.currentNodeId });
+      }
+      return info;
+    } catch (err: unknown) {
+      const error = err as Error;
+      set({ loading: false, error: error.message });
+      return null;
+    }
+  },
+
+  setDecisionTree: (tree) => set({ decisionTree: tree }),
+
+  clearCaseDebug: () => set({ caseDebugInfo: null, decisionTree: null }),
+
   reset: () => {
     get().disconnect();
     set({
@@ -364,6 +401,8 @@ export const useDebugStore = create<DebugState>((set, get) => ({
       highlightedNodeId: null,
       loading: false,
       error: null,
+      caseDebugInfo: null,
+      decisionTree: null,
     });
   },
 }));

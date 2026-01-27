@@ -230,3 +230,89 @@ export interface DebugEvent {
   timestamp: string;
   payload: unknown;
 }
+
+// ========== 决策树可视化类型 (Phase 6) ==========
+
+// 决策节点状态
+export type DecisionNodeStatus =
+  | 'pending'    // 未执行
+  | 'executed'   // 已执行
+  | 'current'    // 当前节点
+  | 'skipped'    // 跳过（分支未选中）
+  | 'failed'     // 执行失败
+  | 'simulated'; // 模拟执行
+
+// 决策树节点
+export interface DecisionNode {
+  id: string;
+  name: string;
+  type: string;
+  status: DecisionNodeStatus;
+  position?: Position;
+  executedAt?: string;
+  duration?: number;
+  decision?: Record<string, unknown>;
+  error?: string;
+  // As-User 模拟信息
+  isSimulated?: boolean;
+  asUserId?: number;
+  operatorId?: number;
+}
+
+// 决策树边
+export interface DecisionEdge {
+  id: string;
+  source: string;
+  target: string;
+  condition?: string;
+  label?: string;
+  wasTaken: boolean;
+  takenAt?: string;
+}
+
+// 决策树
+export interface DecisionTree {
+  instanceId: string;
+  definitionId: string;
+  status: string;
+  currentNodeId?: string;
+  nodes: DecisionNode[];
+  edges: DecisionEdge[];
+  variables?: Record<string, unknown>;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+// 决策树统计
+export interface DecisionTreeStats {
+  totalNodes: number;
+  executedNodes: number;
+  pendingNodes: number;
+  skippedNodes: number;
+  failedNodes: number;
+  simulatedNodes: number;
+  totalEdges: number;
+  takenEdges: number;
+  completionRate: number;
+  totalDurationMs: number;
+}
+
+// 带调试信息的案件详情
+export interface CaseWithDebugInfo {
+  id: string;
+  submitterId: string;
+  categoryId: string;
+  academicYear: string;
+  title: string;
+  description: string;
+  formData?: Record<string, unknown>;
+  attachments?: string[];
+  stage: string;
+  score?: number;
+  finalScore?: number;
+  isConfirmed: boolean;
+  createdAt: number;
+  updatedAt: number;
+  // 调试信息
+  decisionTree?: DecisionTree;
+}

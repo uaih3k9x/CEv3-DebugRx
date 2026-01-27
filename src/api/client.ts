@@ -1,4 +1,5 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import type { DecisionTree, CaseWithDebugInfo } from '../types/workflow';
 
 // API 响应格式
 interface ApiResponse<T = unknown> {
@@ -429,6 +430,52 @@ export async function getTimeline(sessionId: string): Promise<ExecutionStep[]> {
     `/debug/sessions/${sessionId}/timeline`
   );
   return res.data.data.items || [];
+}
+
+// ========== 案件 API (CE) ==========
+
+// 案件基本信息
+export interface CaseInfo {
+  id: string;
+  submitterId: string;
+  categoryId: string;
+  academicYear: string;
+  title: string;
+  description: string;
+  formData?: Record<string, unknown>;
+  attachments?: string[];
+  stage: string;
+  score?: number;
+  finalScore?: number;
+  isConfirmed: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// 获取案件详情
+export async function getCaseDetail(caseId: string): Promise<CaseInfo> {
+  const res = await api.get<ApiResponse<CaseInfo>>(`/ce/case/${caseId}`);
+  return res.data.data;
+}
+
+// 获取案件详情（带调试信息）
+// 仅管理员可用，返回工作流决策树
+export async function getCaseWithDebug(caseId: string): Promise<CaseWithDebugInfo> {
+  const res = await api.get<ApiResponse<CaseWithDebugInfo>>(
+    `/ce/case/${caseId}`,
+    { params: { debug: true } }
+  );
+  return res.data.data;
+}
+
+// 获取案件的决策树（独立接口）
+export async function getCaseDecisionTree(caseId: string): Promise<DecisionTree | null> {
+  try {
+    const caseWithDebug = await getCaseWithDebug(caseId);
+    return caseWithDebug.decisionTree || null;
+  } catch {
+    return null;
+  }
 }
 
 // ========== 诊断 API ==========
