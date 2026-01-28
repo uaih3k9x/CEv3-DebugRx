@@ -1,182 +1,355 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RefreshCw, Settings, CheckCircle, AlertTriangle, XCircle, Shield, Database as DatabaseIcon, Server, FileText } from 'lucide-react';
-import { checkConfig, ConfigCheckResult, ConfigItem } from '../api/client';
+import { RefreshCw, Settings, CheckCircle, AlertTriangle, XCircle, Shield, Database as DatabaseIcon, Server, FileText, Save, Edit2, X, Zap, RotateCcw } from 'lucide-react';
+import api from '../api/client';
 import DataSourceBadge from '../components/DataSourceBadge';
 
+// 配置项（从后端获取）
+interface ConfigItem {
+  key: string;
+  value: string;
+  type: string;
+  category: string;
+  description: string;
+  is_readonly: boolean;
+  hot_reload: boolean;
+  updated_at?: number;
+}
+
 // 状态图标
-function StatusIcon({ status }: { status: ConfigItem['status'] }) {
+function StatusIcon({ status }: { status: 'ok' | 'warning' | 'error' }) {
   switch (status) {
     case 'ok':
-      return <CheckCircle className="w-5 h-5 text-green-500" />;
+      return <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />;
     case 'warning':
-      return <AlertTriangle className="w-5 h-5 text-yellow-500" />;
+      return <AlertTriangle className="w-4 h-4 text-yellow-500 flex-shrink-0" />;
     case 'error':
-      return <XCircle className="w-5 h-5 text-red-500" />;
+      return <XCircle className="w-4 h-4 text-red-500 flex-shrink-0" />;
   }
 }
 
 // 分类图标
 function CategoryIcon({ category }: { category: string }) {
   switch (category) {
-    case '数据库':
-      return <DatabaseIcon className="w-4 h-4" />;
-    case '缓存':
-      return <Server className="w-4 h-4" />;
-    case '存储':
+    case 'system':
+      return <Settings className="w-4 h-4" />;
+    case 'submission':
       return <FileText className="w-4 h-4" />;
-    case '安全':
+    case 'review':
       return <Shield className="w-4 h-4" />;
+    case 'workflow':
+      return <Server className="w-4 h-4" />;
+    case 'sso':
+      return <DatabaseIcon className="w-4 h-4" />;
     default:
       return <Settings className="w-4 h-4" />;
   }
 }
 
-// 总体状态卡片
-function OverallStatusCard({ valid, items }: { valid: boolean; items: ConfigItem[] }) {
-  const errorCount = items.filter(i => i.status === 'error').length;
-  const warningCount = items.filter(i => i.status === 'warning').length;
-  const okCount = items.filter(i => i.status === 'ok').length;
+// 分类名称映射
+const categoryLabels: Record<string, string> = {
+  system: '系统配置',
+  submission: '申报配置',
+  review: '审核配置',
+  workflow: '工作流配置',
+  sso: 'SSO 配置',
+};
 
-  return (
-    <div className={`rounded-lg p-6 mb-6 ${valid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className={`flex items-center justify-center w-16 h-16 rounded-full ${valid ? 'bg-green-100' : 'bg-red-100'}`}>
-            {valid ? (
-              <CheckCircle className="w-8 h-8 text-green-600" />
-            ) : (
-              <XCircle className="w-8 h-8 text-red-600" />
-            )}
-          </div>
-          <div>
-            <h2 className={`text-2xl font-bold ${valid ? 'text-green-700' : 'text-red-700'}`}>
-              {valid ? '配置验证通过' : '配置存在问题'}
-            </h2>
-            <p className="text-gray-600 text-sm">
-              {valid ? '所有配置项验证通过' : `发现 ${errorCount} 个错误，${warningCount} 个警告`}
-            </p>
-          </div>
-        </div>
-        <div className="flex gap-4">
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{okCount}</div>
-            <div className="text-xs text-gray-500">通过</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-yellow-600">{warningCount}</div>
-            <div className="text-xs text-gray-500">警告</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-red-600">{errorCount}</div>
-            <div className="text-xs text-gray-500">错误</div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// 配置项行组件
+function ConfigRow({
+  config,
+  onSave,
+}: {
+  config: ConfigItem;
+  onSave: (key: string, value: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(config.value);
+  const [saving, setSaving] = useState(false);
 
-// 配置项行
-function ConfigItemRow({ item }: { item: ConfigItem }) {
-  const statusBg = {
-    ok: 'bg-white hover:bg-gray-50',
-    warning: 'bg-yellow-50 hover:bg-yellow-100',
-    error: 'bg-red-50 hover:bg-red-100',
+  const displayValue = () => {
+    if (!config.value) return <span className="text-gray-400">未设置</span>;
+    if (config.type === 'bool') return config.value === 'true' ? '是' : '否';
+    return config.value;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onSave(config.key, editValue);
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setEditValue(config.value);
+    setEditing(false);
+  };
+
+  const renderInput = () => {
+    if (config.type === 'bool') {
+      return (
+        <select
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="true">是</option>
+          <option value="false">否</option>
+        </select>
+      );
+    }
+    return (
+      <input
+        type={config.type === 'int' ? 'number' : 'text'}
+        value={editValue}
+        onChange={(e) => setEditValue(e.target.value)}
+        className="flex-1 min-w-0 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        placeholder={config.description || config.key}
+      />
+    );
   };
 
   return (
-    <div className={`${statusBg[item.status]} border-b border-gray-200 last:border-b-0 transition-colors`}>
-      <div className="p-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <StatusIcon status={item.status} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <code className="font-mono text-sm font-semibold text-gray-900 bg-gray-100 px-2 py-0.5 rounded">
-                  {item.key}
-                </code>
-                <span className="flex items-center gap-1 text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                  <CategoryIcon category={item.category} />
-                  {item.category}
-                </span>
-              </div>
-              <div className="text-sm text-gray-600 font-mono truncate">
-                {item.value}
-              </div>
+    <div className="px-4 py-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50">
+      <div className="flex items-start gap-3">
+        <StatusIcon status="ok" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <code className="text-sm font-medium text-gray-900 bg-gray-100 px-1.5 py-0.5 rounded">{config.key}</code>
+            {config.is_readonly && (
+              <span className="text-xs px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded">只读</span>
+            )}
+            {config.hot_reload ? (
+              <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded flex items-center gap-1">
+                <Zap size={10} />
+                热重载
+              </span>
+            ) : (
+              <span className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded">需重载</span>
+            )}
+          </div>
+          {config.description && (
+            <p className="text-xs text-gray-500 mt-0.5">{config.description}</p>
+          )}
+
+          {editing ? (
+            <div className="flex items-center gap-2 mt-2">
+              {renderInput()}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-1 px-2 py-1 bg-blue-600 text-white rounded text-xs hover:bg-blue-700 disabled:opacity-50"
+              >
+                <Save size={12} />
+                {saving ? '...' : '保存'}
+              </button>
+              <button
+                onClick={handleCancel}
+                className="flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs hover:bg-gray-200"
+              >
+                <X size={12} />
+                取消
+              </button>
             </div>
-          </div>
+          ) : (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm font-mono text-gray-700">{displayValue()}</span>
+            </div>
+          )}
         </div>
-        {item.message && (
-          <div className={`mt-2 ml-8 text-sm ${
-            item.status === 'error' ? 'text-red-600' : 'text-yellow-600'
-          }`}>
-            {item.message}
-          </div>
+
+        {!editing && !config.is_readonly && (
+          <button
+            onClick={() => { setEditValue(config.value || ''); setEditing(true); }}
+            className="flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded"
+          >
+            <Edit2 size={12} />
+            编辑
+          </button>
         )}
       </div>
     </div>
   );
 }
 
-// 分类分组
-function CategoryGroup({ category, items }: { category: string; items: ConfigItem[] }) {
-  const hasIssues = items.some(i => i.status !== 'ok');
-
+// 分类组件
+function CategorySection({
+  category,
+  items,
+  onSave,
+}: {
+  category: string;
+  items: ConfigItem[];
+  onSave: (key: string, value: string) => Promise<void>;
+}) {
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4">
-      <div className={`px-4 py-3 border-b ${hasIssues ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
-        <div className="flex items-center gap-2">
-          <CategoryIcon category={category} />
-          <h3 className="font-semibold text-gray-900">{category}</h3>
-          <span className="text-sm text-gray-500">({items.length} 项)</span>
-        </div>
+      <div className="px-4 py-3 border-b bg-gray-50 border-gray-200 flex items-center gap-2">
+        <CategoryIcon category={category} />
+        <h3 className="font-semibold text-gray-900">{categoryLabels[category] || category}</h3>
+        <span className="text-sm text-gray-500">({items.length} 项)</span>
       </div>
       <div>
         {items.map((item) => (
-          <ConfigItemRow key={item.key} item={item} />
+          <ConfigRow
+            key={item.key}
+            config={item}
+            onSave={onSave}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-export default function ConfigCheckPage() {
-  const [data, setData] = useState<ConfigCheckResult | null>(null);
-  const [isMock, setIsMock] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filterStatus, setFilterStatus] = useState<'all' | 'ok' | 'warning' | 'error'>('all');
+// 总体状态卡片
+function OverallStatusCard({ configs, needsReload }: { configs: ConfigItem[]; needsReload: boolean }) {
+  const total = configs.length;
+  const hotReloadCount = configs.filter(c => c.hot_reload).length;
+  const readonlyCount = configs.filter(c => c.is_readonly).length;
 
-  const fetchData = useCallback(async () => {
+  return (
+    <div className={`rounded-lg p-6 mb-6 ${needsReload ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200'}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <div className={`flex items-center justify-center w-14 h-14 rounded-full ${needsReload ? 'bg-yellow-100' : 'bg-green-100'}`}>
+            {needsReload ? (
+              <AlertTriangle className="w-7 h-7 text-yellow-600" />
+            ) : (
+              <CheckCircle className="w-7 h-7 text-green-600" />
+            )}
+          </div>
+          <div>
+            <h2 className={`text-xl font-bold ${needsReload ? 'text-yellow-700' : 'text-green-700'}`}>
+              {needsReload ? '有配置需要重载生效' : '配置已同步'}
+            </h2>
+            <p className="text-gray-600 text-sm">
+              {needsReload ? '修改了非热重载配置，点击"重载配置"使其生效' : '所有配置已生效'}
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-4">
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-700">{total}</div>
+            <div className="text-xs text-gray-500">总配置</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-green-600">{hotReloadCount}</div>
+            <div className="text-xs text-gray-500">热重载</div>
+          </div>
+          <div className="text-center">
+            <div className="text-2xl font-bold text-gray-400">{readonlyCount}</div>
+            <div className="text-xs text-gray-500">只读</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ConfigCheckPage() {
+  const [configs, setConfigs] = useState<ConfigItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [reloading, setReloading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [isMock, setIsMock] = useState(false);
+  const [needsReload, setNeedsReload] = useState(false);
+
+  const fetchConfigs = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await checkConfig();
-      setData(result.data);
-      setIsMock(result.isMock);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '配置检查失败');
+      const response = await api.get('/config/list');
+      setConfigs(response.data.data || []);
+      setIsMock(false);
+      setNeedsReload(false);
+    } catch {
+      // 使用 mock 数据
+      const mockConfigs: ConfigItem[] = [
+        { key: 'current_academic_year', value: '2024-2025', type: 'string', category: 'system', description: '当前学年', is_readonly: false, hot_reload: true },
+        { key: 'system_name', value: '综合素质测评系统', type: 'string', category: 'system', description: '系统名称', is_readonly: false, hot_reload: true },
+        { key: 'system_version', value: '3.0.0', type: 'string', category: 'system', description: '系统版本', is_readonly: true, hot_reload: false },
+        { key: 'max_attachment_size', value: '10485760', type: 'int', category: 'submission', description: '最大附件大小(字节)', is_readonly: false, hot_reload: true },
+        { key: 'auto_assign_enabled', value: 'true', type: 'bool', category: 'review', description: '启用自动分配', is_readonly: false, hot_reload: true },
+        { key: 'sso.base_url', value: 'http://localhost:8081', type: 'string', category: 'sso', description: 'SSO 服务地址', is_readonly: false, hot_reload: false },
+        { key: 'sso.token', value: '', type: 'string', category: 'sso', description: 'SSO 管理员 Token', is_readonly: false, hot_reload: false },
+        { key: 'sso.sync_enabled', value: 'true', type: 'bool', category: 'sso', description: '启用用户同步', is_readonly: false, hot_reload: false },
+        { key: 'sso.sync_interval', value: '5', type: 'int', category: 'sso', description: '同步间隔(分钟)', is_readonly: false, hot_reload: false },
+      ];
+      setConfigs(mockConfigs);
+      setIsMock(true);
     } finally {
       setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+    fetchConfigs();
+  }, [fetchConfigs]);
 
-  // 过滤和分组
-  const filteredItems = data?.items.filter(
-    item => filterStatus === 'all' || item.status === filterStatus
-  ) || [];
+  const handleSave = async (key: string, value: string) => {
+    setError(null);
+    setSuccess(null);
+    try {
+      const config = configs.find(c => c.key === key);
+      await api.post('/config/set', {
+        key,
+        value,
+        type: config?.type || 'string',
+        category: config?.category || 'system',
+        description: config?.description || '',
+      });
+      setConfigs(prev => prev.map(c => c.key === key ? { ...c, value } : c));
+      setSuccess(`配置 ${key} 保存成功`);
 
-  const groupedItems = filteredItems.reduce((acc, item) => {
-    if (!acc[item.category]) {
-      acc[item.category] = [];
+      // 如果不是热重载配置，标记需要重载
+      if (config && !config.hot_reload) {
+        setNeedsReload(true);
+      }
+
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { message?: string } } };
+      setError(axiosError.response?.data?.message || '保存失败');
     }
-    acc[item.category].push(item);
+  };
+
+  const handleReload = async () => {
+    setReloading(true);
+    setError(null);
+    try {
+      const response = await api.post('/admin/system/reload');
+      const reloaded = response.data.data?.reloaded || [];
+      setSuccess(`配置重载成功: ${reloaded.join(', ')}`);
+      setNeedsReload(false);
+      // 重新获取配置
+      await fetchConfigs();
+      setTimeout(() => setSuccess(null), 5000);
+    } catch (err: unknown) {
+      const axiosError = err as { response?: { data?: { message?: string } } };
+      setError(axiosError.response?.data?.message || '重载失败，请确保已登录超级管理员账号');
+    } finally {
+      setReloading(false);
+    }
+  };
+
+  // 按分类分组
+  const categories = configs.reduce((acc, config) => {
+    if (!acc[config.category]) acc[config.category] = [];
+    acc[config.category].push(config);
     return acc;
   }, {} as Record<string, ConfigItem[]>);
+
+  // 分类排序
+  const categoryOrder = ['system', 'submission', 'review', 'workflow', 'sso'];
+  const sortedCategories = Object.entries(categories).sort(([a], [b]) => {
+    const aIndex = categoryOrder.indexOf(a);
+    const bIndex = categoryOrder.indexOf(b);
+    return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+  });
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -187,84 +360,79 @@ export default function ConfigCheckPage() {
             <Settings className="w-6 h-6 text-orange-600" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">配置检查</h1>
-            <p className="text-sm text-gray-500">验证系统配置正确性</p>
+            <h1 className="text-2xl font-bold text-gray-900">配置管理</h1>
+            <p className="text-sm text-gray-500">查看和管理系统配置项</p>
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {data && <DataSourceBadge isMock={isMock} />}
+          <DataSourceBadge isMock={isMock} />
+          {needsReload && (
+            <button
+              onClick={handleReload}
+              disabled={reloading}
+              className="flex items-center gap-2 px-4 py-2 bg-yellow-600 text-white rounded-lg hover:bg-yellow-700 disabled:opacity-50 transition-colors"
+            >
+              <RotateCcw className={`w-4 h-4 ${reloading ? 'animate-spin' : ''}`} />
+              重载配置
+            </button>
+          )}
           <button
-            onClick={fetchData}
+            onClick={fetchConfigs}
             disabled={loading}
-            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 disabled:opacity-50 transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            重新检查
+            刷新
           </button>
         </div>
       </div>
 
-      {/* Loading State */}
-      {loading && !data && (
+      {/* Success Alert */}
+      {success && (
+        <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3">
+          <CheckCircle size={18} className="text-green-600" />
+          <span className="text-sm text-green-700">{success}</span>
+        </div>
+      )}
+
+      {/* Error Alert */}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3">
+          <XCircle size={18} className="text-red-600" />
+          <span className="text-sm text-red-700">{error}</span>
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading ? (
         <div className="flex items-center justify-center py-12">
           <RefreshCw className="w-8 h-8 text-orange-600 animate-spin" />
-          <span className="ml-3 text-gray-600">正在检查配置...</span>
+          <span className="ml-3 text-gray-600">加载配置...</span>
         </div>
-      )}
-
-      {/* Error State */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-2 text-red-700">
-            <XCircle className="w-5 h-5" />
-            <span>{error}</span>
-          </div>
-        </div>
-      )}
-
-      {/* Data Display */}
-      {data && (
+      ) : (
         <>
           {/* Overall Status */}
-          <OverallStatusCard valid={data.valid} items={data.items} />
+          <OverallStatusCard configs={configs} needsReload={needsReload} />
 
-          {/* Filter */}
-          <div className="flex items-center gap-2 mb-4">
-            <span className="text-sm text-gray-500">筛选:</span>
-            {(['all', 'error', 'warning', 'ok'] as const).map((f) => {
-              const count = f === 'all' ? data.items.length : data.items.filter(i => i.status === f).length;
-              const labels = { all: '全部', ok: '通过', warning: '警告', error: '错误' };
-              return (
-                <button
-                  key={f}
-                  onClick={() => setFilterStatus(f)}
-                  className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${
-                    filterStatus === f
-                      ? 'bg-gray-900 text-white'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {labels[f]} ({count})
-                </button>
-              );
-            })}
-          </div>
+          {/* Config by Category */}
+          {sortedCategories.map(([category, items]) => (
+            <CategorySection
+              key={category}
+              category={category}
+              items={items}
+              onSave={handleSave}
+            />
+          ))}
 
-          {/* Config Items by Category */}
-          {Object.keys(groupedItems).length === 0 ? (
-            <div className="text-center py-12 text-gray-500">
-              没有符合条件的配置项
-            </div>
-          ) : (
-            Object.entries(groupedItems).map(([category, items]) => (
-              <CategoryGroup key={category} category={category} items={items} />
-            ))
-          )}
-
-          {/* Last Check Time */}
-          <div className="mt-6 text-center text-sm text-gray-500">
-            检查时间: {new Date(data.checkedAt).toLocaleString()}
+          {/* Help */}
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h4 className="font-medium text-blue-900 text-sm mb-2">说明</h4>
+            <ul className="text-xs text-blue-800 space-y-1">
+              <li>* <span className="inline-flex items-center gap-1 px-1 bg-green-100 text-green-700 rounded"><Zap size={10} />热重载</span> 配置修改后立即生效</li>
+              <li>* <span className="inline-flex items-center px-1 bg-yellow-100 text-yellow-700 rounded">需重载</span> 配置修改后需点击"重载配置"按钮生效</li>
+              <li>* <span className="inline-flex items-center px-1 bg-gray-200 text-gray-600 rounded">只读</span> 配置需要通过环境变量或配置文件修改</li>
+            </ul>
           </div>
         </>
       )}

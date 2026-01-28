@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Users, Search, RefreshCw, ChevronLeft, ChevronRight, User, Shield, AlertCircle, Download, CheckCircle } from 'lucide-react';
+import { Users, Search, RefreshCw, ChevronLeft, ChevronRight, User, Shield, AlertCircle, Download, CheckCircle, Tags, X, Plus } from 'lucide-react';
 import axios from 'axios';
+import { listTagDefinitions, getUserTags, assignUserTag, removeUserTag } from '../api/client';
+import type { TagDefinition, AssignTagRequest } from '../types/tag';
 
 // 后端返回的用户结构
 interface SSOUser {
@@ -36,6 +38,252 @@ const roleLabels: Record<string, { label: string; color: string }> = {
   teacher: { label: '教师', color: 'bg-orange-100 text-orange-700' },
 };
 
+// ================================================================================
+// Tag Edit Modal
+// ================================================================================
+
+interface TagEditModalProps {
+  user: SSOUser;
+  onClose: () => void;
+  onUpdated: () => void;
+}
+
+function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
+  const [tags, setTags] = useState<Record<string, string>>({});
+  const [definitions, setDefinitions] = useState<TagDefinition[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // 新标签表单
+  const [newTagName, setNewTagName] = useState('');
+  const [newTagValue, setNewTagValue] = useState('');
+
+  useEffect(() => {
+    loadData();
+  }, [user.id]);
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [userTags, defs] = await Promise.all([
+        getUserTags(user.id),
+        listTagDefinitions(),
+      ]);
+      setTags(userTags);
+      setDefinitions(defs);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssign = async () => {
+    if (!newTagName || !newTagValue) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const req: AssignTagRequest = {
+        tag_name: newTagName,
+        tag_value: newTagValue,
+      };
+      await assignUserTag(user.id, req);
+      setTags((prev) => ({ ...prev, [newTagName]: newTagValue }));
+      setNewTagName('');
+      setNewTagValue('');
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '分配标签失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemove = async (tagName: string) => {
+    setSaving(true);
+    setError(null);
+    try {
+      await removeUserTag(user.id, tagName);
+      setTags((prev) => {
+        const next = { ...prev };
+        delete next[tagName];
+        return next;
+      });
+      onUpdated();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '移除标签失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 当前标签定义的显示名映射
+  const defMap = new Map(definitions.map((d) => [d.name, d]));
+
+  // 获取当前选中标签定义的可选值
+  const selectedDef = defMap.get(newTagName);
+  const enumValues = selectedDef?.enum_values;
+
+  // 未分配的标签定义
+  const unassignedDefs = definitions.filter((d) => !(d.name in tags));
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">
+              编辑用户标签
+            </h3>
+            <p className="text-sm text-gray-500">
+              {user.display_name} ({user.username})
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          {error && (
+            <div className="bg-red-50 text-red-600 px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-center py-8">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+              <p className="mt-2 text-sm text-gray-500">加载中...</p>
+            </div>
+          ) : (
+            <>
+              {/* 当前标签列表 */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-2">
+                  当前标签
+                </h4>
+                {Object.keys(tags).length === 0 ? (
+                  <p className="text-sm text-gray-400">暂无标签</p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(tags).map(([name, value]) => {
+                      const def = defMap.get(name);
+                      return (
+                        <span
+                          key={name}
+                          className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm bg-blue-50 text-blue-700 border border-blue-200"
+                        >
+                          <span className="font-medium">
+                            {def?.display_name || name}
+                          </span>
+                          <span className="text-blue-400">:</span>
+                          <span>{value}</span>
+                          <button
+                            onClick={() => handleRemove(name)}
+                            disabled={saving}
+                            className="ml-1 text-blue-400 hover:text-red-500 disabled:opacity-50"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* 添加标签 */}
+              {unassignedDefs.length > 0 && (
+                <div className="border-t pt-4">
+                  <h4 className="text-sm font-medium text-gray-700 mb-2">
+                    添加标签
+                  </h4>
+                  <div className="flex items-end gap-2">
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1">
+                        标签类型
+                      </label>
+                      <select
+                        value={newTagName}
+                        onChange={(e) => {
+                          setNewTagName(e.target.value);
+                          setNewTagValue('');
+                        }}
+                        className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">选择标签...</option>
+                        {unassignedDefs.map((d) => (
+                          <option key={d.name} value={d.name}>
+                            {d.display_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex-1">
+                      <label className="block text-xs text-gray-500 mb-1">
+                        标签值
+                      </label>
+                      {enumValues && enumValues.length > 0 ? (
+                        <select
+                          value={newTagValue}
+                          onChange={(e) => setNewTagValue(e.target.value)}
+                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="">选择值...</option>
+                          {enumValues.map((v) => (
+                            <option key={v} value={v}>
+                              {v}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <input
+                          type="text"
+                          value={newTagValue}
+                          onChange={(e) => setNewTagValue(e.target.value)}
+                          placeholder="输入标签值"
+                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        />
+                      )}
+                    </div>
+                    <button
+                      onClick={handleAssign}
+                      disabled={!newTagName || !newTagValue || saving}
+                      className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+                    >
+                      <Plus className="w-4 h-4" />
+                      添加
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-4 border-t flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg text-sm"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ================================================================================
+// Main Page
+// ================================================================================
+
 export default function UsersPage() {
   const [users, setUsers] = useState<UserWithTags[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +294,7 @@ export default function UsersPage() {
   const [roleFilter, setRoleFilter] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ synced: number; failed: number } | null>(null);
+  const [editingUser, setEditingUser] = useState<SSOUser | null>(null);
   const limit = 20;
 
   const fetchUsers = async () => {
@@ -219,19 +468,20 @@ export default function UsersPage() {
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">年级/班级</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">学号</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">状态</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {loading ? (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
+                <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                   <RefreshCw size={24} className="animate-spin mx-auto mb-2" />
                   加载中...
                 </td>
               </tr>
             ) : users.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
+                <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
                   暂无用户数据
                 </td>
               </tr>
@@ -286,6 +536,15 @@ export default function UsersPage() {
                         </span>
                       )}
                     </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setEditingUser(item.user)}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded"
+                      >
+                        <Tags size={14} />
+                        标签
+                      </button>
+                    </td>
                   </tr>
                 );
               })
@@ -318,6 +577,15 @@ export default function UsersPage() {
           </div>
         )}
       </div>
+
+      {/* Tag Edit Modal */}
+      {editingUser && (
+        <TagEditModal
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onUpdated={() => fetchUsers()}
+        />
+      )}
     </div>
   );
 }

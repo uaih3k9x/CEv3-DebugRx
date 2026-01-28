@@ -759,6 +759,32 @@ export async function deleteTagDefinition(id: number): Promise<void> {
   await api.delete(`/admin/tags/${id}`);
 }
 
+// 查询拥有指定标签的用户
+export interface ListUsersByTagParams {
+  tagValue?: string;
+  academicYear?: string;
+  page?: number;
+  limit?: number;
+}
+
+export interface ListUsersByTagResponse {
+  users: UserWithTags[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export async function listUsersByTag(
+  tagId: number,
+  params?: ListUsersByTagParams
+): Promise<ListUsersByTagResponse> {
+  const res = await api.get<ApiResponse<ListUsersByTagResponse>>(
+    `/admin/tags/${tagId}/users`,
+    { params }
+  );
+  return res.data.data;
+}
+
 // ========== 用户标签 API ==========
 
 // 获取用户标签

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Tag, Plus, Pencil, Trash2, Lock, AlertCircle, X } from 'lucide-react';
+import { Tag, Plus, Pencil, Trash2, Lock, AlertCircle, X, Users, RefreshCw } from 'lucide-react';
 import { useTagStore, selectSystemTags, selectCustomTags } from '../stores/tagStore';
-import type { TagDefinition, CreateTagDefRequest, UpdateTagDefRequest } from '../types/tag';
+import { listUsersByTag } from '../api/client';
+import type { TagDefinition, CreateTagDefRequest, UpdateTagDefRequest, UserWithTags } from '../types/tag';
 
 // ================================================================================
 // Tag Definition Form Modal
@@ -195,9 +196,10 @@ interface TagCardProps {
   tag: TagDefinition;
   onEdit: (tag: TagDefinition) => void;
   onDelete: (tag: TagDefinition) => void;
+  onViewUsers: (tag: TagDefinition) => void;
 }
 
-function TagCard({ tag, onEdit, onDelete }: TagCardProps) {
+function TagCard({ tag, onEdit, onDelete, onViewUsers }: TagCardProps) {
   return (
     <div className="bg-white rounded-lg border p-4 hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
@@ -245,6 +247,165 @@ function TagCard({ tag, onEdit, onDelete }: TagCardProps) {
       {tag.description && (
         <p className="mt-2 text-sm text-gray-600 line-clamp-2">{tag.description}</p>
       )}
+
+      {/* View Users Button */}
+      <div className="mt-3 pt-3 border-t">
+        <button
+          onClick={() => onViewUsers(tag)}
+          className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+        >
+          <Users className="w-4 h-4" />
+          查看用户
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ================================================================================
+// Tag Users Modal
+// ================================================================================
+
+interface TagUsersModalProps {
+  tag: TagDefinition;
+  onClose: () => void;
+}
+
+function TagUsersModal({ tag, onClose }: TagUsersModalProps) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [users, setUsers] = useState<UserWithTags[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const limit = 10;
+
+  useEffect(() => {
+    loadUsers();
+  }, [tag.id, page]);
+
+  const loadUsers = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await listUsersByTag(tag.id, { page, limit });
+      setUsers(result.users);
+      setTotal(result.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '加载失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const totalPages = Math.ceil(total / limit);
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">
+              拥有标签的用户
+            </h3>
+            <p className="text-sm text-gray-500">
+              {tag.display_name} ({tag.name})
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-6">
+          {error && (
+            <div className="mb-4 bg-red-50 text-red-600 px-4 py-2 rounded-lg flex items-center gap-2 text-sm">
+              <AlertCircle className="w-4 h-4" />
+              {error}
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-center py-8">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+              <p className="mt-2 text-sm text-gray-500">加载中...</p>
+            </div>
+          ) : users.length === 0 ? (
+            <div className="text-center py-8">
+              <Users className="w-12 h-12 text-gray-300 mx-auto" />
+              <p className="mt-2 text-gray-500">暂无用户拥有此标签</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {users.map((item) => (
+                <div
+                  key={item.user.id}
+                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                      <Users className="w-5 h-5 text-blue-600" />
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900">
+                        {item.user.display_name}
+                      </div>
+                      <div className="text-sm text-gray-500">
+                        {item.user.username}
+                        {item.user.email && ` - ${item.user.email}`}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    {item.tags[tag.name] && (
+                      <span className="inline-flex items-center px-2 py-1 bg-blue-50 text-blue-700 text-sm rounded">
+                        {item.tags[tag.name]}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Footer with Pagination */}
+        <div className="px-6 py-4 border-t flex items-center justify-between">
+          <div className="text-sm text-gray-500">
+            共 {total} 个用户
+          </div>
+          <div className="flex items-center gap-2">
+            {totalPages > 1 && (
+              <>
+                <button
+                  onClick={() => setPage(Math.max(1, page - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  上一页
+                </button>
+                <span className="text-sm text-gray-500">
+                  {page}/{totalPages}
+                </span>
+                <button
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1 text-sm border rounded hover:bg-gray-50 disabled:opacity-50"
+                >
+                  下一页
+                </button>
+              </>
+            )}
+            <button
+              onClick={onClose}
+              className="ml-4 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg text-sm"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -270,6 +431,7 @@ export default function TagManagementPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTag, setEditingTag] = useState<TagDefinition | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<TagDefinition | null>(null);
+  const [viewingUsersTag, setViewingUsersTag] = useState<TagDefinition | null>(null);
 
   useEffect(() => {
     loadDefinitions();
@@ -287,6 +449,10 @@ export default function TagManagementPage() {
 
   const handleDelete = (tag: TagDefinition) => {
     setDeleteConfirm(tag);
+  };
+
+  const handleViewUsers = (tag: TagDefinition) => {
+    setViewingUsersTag(tag);
   };
 
   const confirmDelete = async () => {
@@ -371,6 +537,7 @@ export default function TagManagementPage() {
                       tag={tag}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
+                      onViewUsers={handleViewUsers}
                     />
                   ))}
                 </div>
@@ -405,6 +572,7 @@ export default function TagManagementPage() {
                       tag={tag}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
+                      onViewUsers={handleViewUsers}
                     />
                   ))}
                 </div>
@@ -446,6 +614,14 @@ export default function TagManagementPage() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Tag Users Modal */}
+        {viewingUsersTag && (
+          <TagUsersModal
+            tag={viewingUsersTag}
+            onClose={() => setViewingUsersTag(null)}
+          />
         )}
       </div>
     </div>
