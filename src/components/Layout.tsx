@@ -12,7 +12,38 @@ const TEST_USERS = [
 
 // 预生成的开发测试 Token (通过 go run ./cmd/gentoken 生成，有效期24小时)
 // permissions=15 表示拥有所有权限 (user=1 + admin=2 + grade_admin=4 + super_admin=8)
-const DEV_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWdlIjoxLCJleHAiOjE3Njk1NzQyMTIsImlhdCI6MTc2OTQ4NzgxMiwicGVybWlzc2lvbnMiOjE1LCJyb2xlIjoxLCJ0b2tlbl90eXBlIjoiYWNjZXNzIiwidXNlcl9pZCI6MX0.eMWl0LhbQxMG6A-hm5muCa63cSE0MWjQum2FlKnXRZ8';
+const DEV_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjb2xsZWdlIjoxLCJleHAiOjE3Njk2NjUwMTgsImlhdCI6MTc2OTU3ODYxOCwicGVybWlzc2lvbnMiOjE1LCJyb2xlIjoxLCJ0b2tlbl90eXBlIjoiYWNjZXNzIiwidXNlcl9pZCI6MX0.iJ2b2ZNG6V9NMbtmOiGVCzXIMkwvzujCm02Ww4YcXug';
+
+// 解析 JWT 获取过期时间
+function getTokenExpiry(token: string): Date | null {
+  try {
+    const payload = token.split('.')[1];
+    const decoded = JSON.parse(atob(payload));
+    return decoded.exp ? new Date(decoded.exp * 1000) : null;
+  } catch {
+    return null;
+  }
+}
+
+// 格式化剩余时间
+function formatTimeRemaining(expiry: Date): { text: string; isExpired: boolean; isWarning: boolean } {
+  const now = new Date();
+  const diff = expiry.getTime() - now.getTime();
+
+  if (diff <= 0) {
+    return { text: '已过期', isExpired: true, isWarning: false };
+  }
+
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+  const isWarning = hours < 2; // 少于2小时警告
+
+  if (hours > 0) {
+    return { text: `${hours}小时${minutes}分钟`, isExpired: false, isWarning };
+  }
+  return { text: `${minutes}分钟`, isExpired: false, isWarning };
+}
 
 interface LayoutProps {
   children: ReactNode;
@@ -40,6 +71,7 @@ export default function Layout({ children }: LayoutProps) {
   const [showMainMenu, setShowMainMenu] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [currentUser, setCurrentUser] = useState<typeof TEST_USERS[0] | null>(null);
+  const [tokenStatus, setTokenStatus] = useState<{ text: string; isExpired: boolean; isWarning: boolean } | null>(null);
   const mainMenuRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -58,6 +90,20 @@ export default function Layout({ children }: LayoutProps) {
         localStorage.removeItem('current_user');
       }
     }
+  }, []);
+
+  // 检查 token 过期状态
+  useEffect(() => {
+    const updateTokenStatus = () => {
+      const expiry = getTokenExpiry(DEV_TOKEN);
+      if (expiry) {
+        setTokenStatus(formatTimeRemaining(expiry));
+      }
+    };
+
+    updateTokenStatus();
+    const interval = setInterval(updateTokenStatus, 60000); // 每分钟更新
+    return () => clearInterval(interval);
   }, []);
 
   // 点击外部关闭菜单
@@ -189,6 +235,20 @@ export default function Layout({ children }: LayoutProps) {
                   </button>
                   {showUserMenu && (
                     <div className="absolute top-full right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
+                      {/* Token 过期提醒 */}
+                      {tokenStatus && (
+                        <div className={`mx-2 mb-1 px-3 py-2 rounded text-xs ${
+                          tokenStatus.isExpired
+                            ? 'bg-red-50 text-red-600'
+                            : tokenStatus.isWarning
+                              ? 'bg-amber-50 text-amber-600'
+                              : 'bg-green-50 text-green-600'
+                        }`}>
+                          {tokenStatus.isExpired
+                            ? 'DevToken 已过期，请重新生成'
+                            : `DevToken 剩余 ${tokenStatus.text}`}
+                        </div>
+                      )}
                       <div className="px-4 py-2 border-b border-gray-100">
                         <p className="text-xs text-gray-500">切换用户</p>
                       </div>
@@ -228,6 +288,12 @@ export default function Layout({ children }: LayoutProps) {
                   </button>
                   {showUserMenu && (
                     <div className="absolute top-full right-0 mt-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg py-1 z-50">
+                      {/* Token 过期提醒 */}
+                      {tokenStatus && tokenStatus.isExpired && (
+                        <div className="mx-2 mb-1 px-3 py-2 rounded text-xs bg-red-50 text-red-600">
+                          DevToken 已过期，请重新生成
+                        </div>
+                      )}
                       <div className="px-4 py-2 border-b border-gray-100">
                         <p className="text-xs text-gray-500">选择测试用户</p>
                       </div>

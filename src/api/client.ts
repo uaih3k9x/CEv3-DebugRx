@@ -759,6 +759,12 @@ export async function deleteTagDefinition(id: number): Promise<void> {
   await api.delete(`/admin/tags/${id}`);
 }
 
+// 获取标签的所有现有值
+export async function getTagValues(tagId: number): Promise<string[]> {
+  const res = await api.get<ApiResponse<string[]>>(`/admin/tags/${tagId}/values`);
+  return res.data.data || [];
+}
+
 // 查询拥有指定标签的用户
 export interface ListUsersByTagParams {
   tagValue?: string;

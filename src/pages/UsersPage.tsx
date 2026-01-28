@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Users, Search, RefreshCw, ChevronLeft, ChevronRight, User, Shield, AlertCircle, Download, CheckCircle, Tags, X, Plus } from 'lucide-react';
 import axios from 'axios';
-import { listTagDefinitions, getUserTags, assignUserTag, removeUserTag } from '../api/client';
+import { listTagDefinitions, getUserTags, assignUserTag, removeUserTag, getTagValues } from '../api/client';
 import type { TagDefinition, AssignTagRequest } from '../types/tag';
 
 // 后端返回的用户结构
@@ -59,9 +59,24 @@ function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
   const [newTagName, setNewTagName] = useState('');
   const [newTagValue, setNewTagValue] = useState('');
 
+  // 现有值相关状态
+  const [existingValues, setExistingValues] = useState<string[]>([]);
+  const [loadingValues, setLoadingValues] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+
   useEffect(() => {
     loadData();
   }, [user.id]);
+
+  // 当选择标签类型时，加载现有值
+  useEffect(() => {
+    if (newTagName) {
+      loadExistingValues();
+    } else {
+      setExistingValues([]);
+    }
+  }, [newTagName]);
 
   const loadData = async () => {
     setLoading(true);
@@ -80,6 +95,22 @@ function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
     }
   };
 
+  const loadExistingValues = async () => {
+    const selectedDef = definitions.find((d) => d.name === newTagName);
+    if (!selectedDef) return;
+
+    setLoadingValues(true);
+    try {
+      const values = await getTagValues(selectedDef.id);
+      setExistingValues(values);
+    } catch {
+      // 忽略错误，保持空数组
+      setExistingValues([]);
+    } finally {
+      setLoadingValues(false);
+    }
+  };
+
   const handleAssign = async () => {
     if (!newTagName || !newTagValue) return;
     setSaving(true);
@@ -93,6 +124,8 @@ function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
       setTags((prev) => ({ ...prev, [newTagName]: newTagValue }));
       setNewTagName('');
       setNewTagValue('');
+      setSearchTerm('');
+      setShowDropdown(false);
       onUpdated();
     } catch (err) {
       setError(err instanceof Error ? err.message : '分配标签失败');
@@ -119,12 +152,30 @@ function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
     }
   };
 
+  const handleSelectValue = (value: string) => {
+    setNewTagValue(value);
+    setSearchTerm(value);
+    setShowDropdown(false);
+  };
+
+  const handleValueInputChange = (value: string) => {
+    setSearchTerm(value);
+    setNewTagValue(value);
+    setShowDropdown(true);
+  };
+
   // 当前标签定义的显示名映射
   const defMap = new Map(definitions.map((d) => [d.name, d]));
 
   // 获取当前选中标签定义的可选值
   const selectedDef = defMap.get(newTagName);
   const enumValues = selectedDef?.enum_values;
+
+  // 过滤后的建议值（现有值 + enum值）
+  const allSuggestions = [...new Set([...(enumValues || []), ...existingValues])];
+  const filteredSuggestions = searchTerm
+    ? allSuggestions.filter((v) => v.toLowerCase().includes(searchTerm.toLowerCase()))
+    : allSuggestions;
 
   // 未分配的标签定义
   const unassignedDefs = definitions.filter((d) => !(d.name in tags));
@@ -213,6 +264,7 @@ function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
                         onChange={(e) => {
                           setNewTagName(e.target.value);
                           setNewTagValue('');
+                          setSearchTerm('');
                         }}
                         className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       >
@@ -224,32 +276,40 @@ function TagEditModal({ user, onClose, onUpdated }: TagEditModalProps) {
                         ))}
                       </select>
                     </div>
-                    <div className="flex-1">
+                    <div className="flex-1 relative">
                       <label className="block text-xs text-gray-500 mb-1">
                         标签值
+                        {loadingValues && <span className="ml-1 text-gray-400">(加载中...)</span>}
                       </label>
-                      {enumValues && enumValues.length > 0 ? (
-                        <select
-                          value={newTagValue}
-                          onChange={(e) => setNewTagValue(e.target.value)}
-                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value="">选择值...</option>
-                          {enumValues.map((v) => (
-                            <option key={v} value={v}>
-                              {v}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
+                      <div className="relative">
                         <input
                           type="text"
-                          value={newTagValue}
-                          onChange={(e) => setNewTagValue(e.target.value)}
-                          placeholder="输入标签值"
-                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          value={searchTerm}
+                          onChange={(e) => handleValueInputChange(e.target.value)}
+                          onFocus={() => setShowDropdown(true)}
+                          onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+                          placeholder={enumValues && enumValues.length > 0 ? '选择或输入值...' : '输入或搜索值...'}
+                          disabled={!newTagName}
+                          className="w-full px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
                         />
-                      )}
+                        {showDropdown && newTagName && filteredSuggestions.length > 0 && (
+                          <div className="absolute z-10 w-full mt-1 bg-white border rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                            {filteredSuggestions.map((value) => (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() => handleSelectValue(value)}
+                                className="w-full px-3 py-2 text-left text-sm hover:bg-blue-50 flex items-center justify-between"
+                              >
+                                <span>{value}</span>
+                                {existingValues.includes(value) && (
+                                  <span className="text-xs text-gray-400">已有</span>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <button
                       onClick={handleAssign}
@@ -295,7 +355,16 @@ export default function UsersPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ synced: number; failed: number } | null>(null);
   const [editingUser, setEditingUser] = useState<SSOUser | null>(null);
+  const [tagDefs, setTagDefs] = useState<TagDefinition[]>([]);
   const limit = 20;
+
+  // 标签名到显示名的映射
+  const tagNameMap = new Map(tagDefs.map((d) => [d.name, d.display_name]));
+
+  // 加载标签定义
+  useEffect(() => {
+    listTagDefinitions().then(setTagDefs).catch(() => {});
+  }, []);
 
   const fetchUsers = async () => {
     setLoading(true);
@@ -310,8 +379,27 @@ export default function UsersPage() {
       const response = await axios.get(`/api/v1/users?${params.toString()}`);
       if (response.data.code === 0 && response.data.data) {
         const usersData: SSOUser[] = response.data.data.items || [];
-        setUsers(usersData.map((user) => ({ user, tags: [] })));
+        const usersWithTags: UserWithTags[] = usersData.map((user) => ({ user, tags: [] }));
+        setUsers(usersWithTags);
         setTotal(response.data.data.total || usersData.length);
+
+        // 并行加载每个用户的标签
+        const tagResults = await Promise.allSettled(
+          usersData.map((u) => getUserTags(u.id))
+        );
+        setUsers(
+          usersData.map((user, i) => {
+            const result = tagResults[i];
+            const tagsMap = result.status === 'fulfilled' ? result.value : {};
+            return {
+              user,
+              tags: Object.entries(tagsMap).map(([tag_name, tag_value]) => ({
+                tag_name,
+                tag_value,
+              })),
+            };
+          })
+        );
       } else {
         setUsers(getMockUsers());
         setTotal(8);
@@ -460,15 +548,23 @@ export default function UsersPage() {
 
       {/* Users Table */}
       <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-        <table className="w-full">
+        <table className="w-full table-fixed">
+          <colgroup>
+            <col style={{ width: '35%' }} />
+            <col style={{ width: '13%' }} />
+            <col style={{ width: '18%' }} />
+            <col style={{ width: '14%' }} />
+            <col style={{ width: '10%' }} />
+            <col style={{ width: '10%' }} />
+          </colgroup>
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">用户</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">角色</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">年级/班级</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">学号</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">状态</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-600">操作</th>
+              <th className="px-3 py-2.5 text-left text-sm font-medium text-gray-600">用户</th>
+              <th className="px-2 py-2.5 text-left text-sm font-medium text-gray-600">角色</th>
+              <th className="px-2 py-2.5 text-left text-sm font-medium text-gray-600">年级/班级</th>
+              <th className="px-2 py-2.5 text-left text-sm font-medium text-gray-600">学号</th>
+              <th className="px-2 py-2.5 text-left text-sm font-medium text-gray-600">状态</th>
+              <th className="px-2 py-2.5 text-left text-sm font-medium text-gray-600">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -490,24 +586,39 @@ export default function UsersPage() {
                 const roleInfo = roleLabels[item.user.role] || { label: item.user.role, color: 'bg-gray-100 text-gray-700' };
                 return (
                   <tr key={item.user.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                          <User size={16} className="text-gray-500" />
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-start gap-2">
+                        <div className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <User size={14} className="text-gray-500" />
                         </div>
-                        <div>
-                          <div className="font-medium text-gray-900">{item.user.display_name}</div>
-                          <div className="text-xs text-gray-500">{item.user.email}</div>
+                        <div className="min-w-0">
+                          <div className="font-medium text-sm text-gray-900 leading-tight">{item.user.display_name}</div>
+                          <div className="text-xs text-gray-500 truncate leading-tight">{item.user.email}</div>
+                          {item.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {item.tags.map((t) => (
+                                <span
+                                  key={t.tag_name}
+                                  className="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full text-xs bg-gradient-to-r from-blue-50 to-indigo-50 text-blue-700 border border-blue-100 whitespace-nowrap"
+                                  title={`${tagNameMap.get(t.tag_name) || t.tag_name}: ${t.tag_value}`}
+                                >
+                                  <span className="text-blue-400">{tagNameMap.get(t.tag_name) || t.tag_name}</span>
+                                  <span className="text-blue-200">|</span>
+                                  <span>{t.tag_value}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${roleInfo.color}`}>
-                        <Shield size={12} />
+                    <td className="px-2 py-2.5">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${roleInfo.color}`}>
+                        <Shield size={11} />
                         {roleInfo.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-2 py-2.5 text-sm text-gray-600 truncate">
                       {item.user.class_name ? (
                         item.user.class_name
                       ) : item.user.department ? (
@@ -516,32 +627,32 @@ export default function UsersPage() {
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
+                    <td className="px-2 py-2.5 text-sm text-gray-600">
                       {item.user.student_id ? (
                         <span className="font-mono">{item.user.student_id}</span>
                       ) : (
                         <span className="text-gray-400">-</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-2.5">
                       {item.user.is_active ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 rounded-full text-xs whitespace-nowrap">
                           <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
                           活跃
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 text-gray-500 rounded-full text-xs">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded-full text-xs whitespace-nowrap">
                           <span className="w-1.5 h-1.5 bg-gray-400 rounded-full" />
                           停用
                         </span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-2.5">
                       <button
                         onClick={() => setEditingUser(item.user)}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-sm text-blue-600 hover:bg-blue-50 rounded"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded whitespace-nowrap"
                       >
-                        <Tags size={14} />
+                        <Tags size={13} />
                         标签
                       </button>
                     </td>

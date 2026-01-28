@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Tag, Plus, Pencil, Trash2, Lock, AlertCircle, X, Users, RefreshCw } from 'lucide-react';
+import { Tag, Plus, Pencil, Trash2, Lock, AlertCircle, X, Users, RefreshCw, Search } from 'lucide-react';
 import { useTagStore, selectSystemTags, selectCustomTags } from '../stores/tagStore';
 import { listUsersByTag } from '../api/client';
 import type { TagDefinition, CreateTagDefRequest, UpdateTagDefRequest, UserWithTags } from '../types/tag';
@@ -277,6 +277,7 @@ function TagUsersModal({ tag, onClose }: TagUsersModalProps) {
   const [users, setUsers] = useState<UserWithTags[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
   const limit = 10;
 
   useEffect(() => {
@@ -296,6 +297,17 @@ function TagUsersModal({ tag, onClose }: TagUsersModalProps) {
       setLoading(false);
     }
   };
+
+  // 客户端搜索过滤
+  const filteredUsers = users.filter((item) => {
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase();
+    return (
+      item.user.display_name.toLowerCase().includes(term) ||
+      item.user.username.toLowerCase().includes(term) ||
+      (item.user.email && item.user.email.toLowerCase().includes(term))
+    );
+  });
 
   const totalPages = Math.ceil(total / limit);
 
@@ -317,6 +329,20 @@ function TagUsersModal({ tag, onClose }: TagUsersModalProps) {
           </button>
         </div>
 
+        {/* Search Bar */}
+        <div className="px-6 py-3 border-b bg-gray-50">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="搜索用户名、用户名或邮箱..."
+              className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        </div>
+
         {/* Content */}
         <div className="flex-1 overflow-auto p-6">
           {error && (
@@ -336,9 +362,14 @@ function TagUsersModal({ tag, onClose }: TagUsersModalProps) {
               <Users className="w-12 h-12 text-gray-300 mx-auto" />
               <p className="mt-2 text-gray-500">暂无用户拥有此标签</p>
             </div>
+          ) : filteredUsers.length === 0 ? (
+            <div className="text-center py-8">
+              <Search className="w-12 h-12 text-gray-300 mx-auto" />
+              <p className="mt-2 text-gray-500">未找到匹配的用户</p>
+            </div>
           ) : (
             <div className="space-y-3">
-              {users.map((item) => (
+              {filteredUsers.map((item) => (
                 <div
                   key={item.user.id}
                   className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
@@ -373,7 +404,7 @@ function TagUsersModal({ tag, onClose }: TagUsersModalProps) {
         {/* Footer with Pagination */}
         <div className="px-6 py-4 border-t flex items-center justify-between">
           <div className="text-sm text-gray-500">
-            共 {total} 个用户
+            {searchTerm.trim() ? `显示 ${filteredUsers.length} / ${users.length} 个用户（本页）` : `共 ${total} 个用户`}
           </div>
           <div className="flex items-center gap-2">
             {totalPages > 1 && (
